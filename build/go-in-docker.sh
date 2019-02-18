@@ -68,8 +68,8 @@ docker run                                       \
     --tty                                        \
     --rm                                         \
     ${DOCKER_OPTS}                               \
-    -v ${HOME}/.kube:/${HOME}/.kube              \
-    -v ${HOME}/.minikube:${HOME}/.minikube       \
+    -v /d/${HOME}/.kube:${HOME}/.kube            \
+    -v /d/${HOME}/.minikube:${HOME}/.minikube    \
     -v ${PWD}:/go/src/${PKG}                     \
     -v ${PWD}/.gocache:${HOME}/.cache/go-build   \
     -v ${PWD}/bin/${ARCH}:/go/bin/linux_${ARCH}  \

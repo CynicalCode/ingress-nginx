@@ -33,6 +33,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	discovery "k8s.io/apimachinery/pkg/version"
 	"k8s.io/apiserver/pkg/server/healthz"
@@ -40,8 +41,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"k8s.io/ingress-nginx/internal/file"
+	"k8s.io/ingress-nginx/internal/ingress"
 	"k8s.io/ingress-nginx/internal/ingress/controller"
-	"k8s.io/ingress-nginx/internal/ingress/metric"
 	"k8s.io/ingress-nginx/internal/k8s"
 	"k8s.io/ingress-nginx/internal/net/ssl"
 	"k8s.io/ingress-nginx/version"
@@ -57,6 +58,17 @@ const (
 
 	fakeCertificate = "default-fake-certificate"
 )
+
+type stubMetricCollector int
+
+func (mc *stubMetricCollector) ConfigSuccess(uint64, bool)                  {}
+func (mc *stubMetricCollector) IncReloadCount()                             {}
+func (mc *stubMetricCollector) IncReloadErrorCount()                        {}
+func (mc *stubMetricCollector) RemoveMetrics(ingresses, endpoints []string) {}
+func (mc *stubMetricCollector) SetSSLExpireTime([]*ingress.Server)          {}
+func (mc *stubMetricCollector) SetHosts(sets.String)                        {}
+func (mc *stubMetricCollector) Start()                                      {}
+func (mc *stubMetricCollector) Stop()                                       {}
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
@@ -120,21 +132,9 @@ func main() {
 
 	conf.Client = kubeClient
 
-	reg := prometheus.NewRegistry()
+	var mc stubMetricCollector
 
-	reg.MustRegister(prometheus.NewGoCollector())
-	reg.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{
-		PidFn:        func() (int, error) { return os.Getpid(), nil },
-		ReportErrors: true,
-	}))
-
-	mc, err := metric.NewCollector(conf.ListenPorts.Status, reg)
-	if err != nil {
-		glog.Fatalf("Error creating prometheus collector:  %v", err)
-	}
-	mc.Start()
-
-	ngx := controller.NewNGINXController(conf, mc, fs)
+	ngx := controller.NewNGINXController(conf, &mc, fs)
 	go handleSigterm(ngx, func(code int) {
 		os.Exit(code)
 	})
@@ -146,7 +146,6 @@ func main() {
 	}
 
 	registerHealthz(ngx, mux)
-	registerMetrics(reg, mux)
 	registerHandlers(mux)
 
 	go startHTTPServer(conf.ListenPorts.Health, mux)
